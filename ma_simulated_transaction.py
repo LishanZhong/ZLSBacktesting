@@ -3,17 +3,29 @@ import numpy as np
 import datetime
 import talib
 
+# 显示所有列
+pd.set_option('display.max_columns', None)
+# # 显示所有行
+# pd.set_option('display.max_rows', None)
+# 设置value的显示长度为100，默认为50
+pd.set_option('max_colwidth', 100)
+
 
 class BackTesting:
-    def __init__(self):
-        self.path = ''
+    def __init__(self, slow, fast, path, trade_log_path, start_money):
+        self.path = path  # 读取日线数据路径
         self.position = 0
         self.close_list = []
-        self.slow_line = 20
-        self.fast_line = 5
+        self.slow_line = slow
+        self.fast_line = fast
+        self.start_money = start_money
+        self.trade_log_path = trade_log_path   # 交易结果保存路径
 
     def load_data(self):
         """加载数据"""
+        info = 'action,price,amount,datetime\n'
+        with open(self.trade_log_path, 'a') as f:
+            f.write(info)
         data = pd.read_csv(self.path)
         for index, row in data.iterrows():
             bar = Bar
@@ -30,7 +42,23 @@ class BackTesting:
         dt = datetime.datetime.fromtimestamp(bar.datetime).strftime("%Y-%m-%d")
         ma20 = talib.MA(np.array(self.close_list, dtype=float), self.slow_line)[-1]
         ma5 = talib.MA(np.array(self.close_list, dtype=float), self.fast_line)[-1]
-        print(ma5, ma20, dt)
+        # print(ma5, ma20, dt)
+        # MA
+        volume = self.start_money / bar.close  # 计算下单的数量
+        long_status = ma5 > ma20
+        short_status = ma5 < ma20
+        if long_status:
+            if self.position < 0:
+                self.cover(bar.close, abs(self.position), dt)
+                self.buy(bar.close, volume, dt)
+            elif self.position == 0:
+                self.buy(bar.close, volume, dt)
+        elif short_status:
+            if self.position > 0:
+                self.sell(bar.close, abs(self.position), dt)
+                self.short(bar.close, volume, dt)
+            elif self.position == 0:
+                self.short(bar.close, volume, dt)
 
         self.close_list = self.close_list[1:]
 
@@ -39,22 +67,22 @@ class BackTesting:
         self.position += num
         self.trade_log('buy', price, num, dt)
 
-    def sell(self, price, num):
+    def sell(self, price, num, dt):
         self.position -= num
         self.trade_log('sell', price, num, dt)
 
-    def short(self, price, num):
+    def short(self, price, num, dt):
         self.position -= num
         self.trade_log('short', price, num, dt)
 
-    def cover(self, price, num):
+    def cover(self, price, num, dt):
         self.position += num
         self.trade_log('cover', price, num, dt)
 
     def trade_log(self, direction, price, num, dt):
         """记录下单情况"""
-        info = direction+','+str(price)+','+str(num)+','+dt
-        with open('trade_log.csv', 'a') as f:
+        info = direction+','+str(price)+','+str(num)+','+dt+'\n'
+        with open(self.trade_log_path, 'a') as f:
             f.write(info)
         print(info)
 
@@ -72,6 +100,5 @@ class Bar:
         self.datetime = None
 
 if __name__ == '__main__':
-    bt = BackTesting()
-    bt.path = 'data/huobip_btc_usdt.csv'    # 读取日线数据路径
-    bt.start()
+    ma_bt = BackTesting(slow=20, fast=5, path = 'data/huobip_btc_usdt.csv', trade_log_path = 'result/ma_trade_log.csv', start_money=10000.0)
+    ma_bt.start()
